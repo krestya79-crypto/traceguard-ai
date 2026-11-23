@@ -114,6 +114,9 @@ export const ProvenanceGraph: React.FC = () => {
             </h2>
           </div>
           <div className="flex items-center gap-3 text-xs font-mono">
+            <span className="text-[10px] font-mono px-2.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/40">
+              TRACE DEMO: SCENARIO B (INDIRECT INJECTION)
+            </span>
             <span className="flex items-center gap-1.5 text-emerald-400">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Clean
             </span>
@@ -123,7 +126,7 @@ export const ProvenanceGraph: React.FC = () => {
           </div>
         </div>
         <p className="text-xs text-slate-400">
-          Visual trace of the provenance chain. Click any node to inspect its origin, trust level, taint propagation, and parent dependencies.
+          Visual trace of the provenance chain. Displays parent-child lineage, trust classifications, and taint propagation flags across agent steps.
         </p>
       </div>
 

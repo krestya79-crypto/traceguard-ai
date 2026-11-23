@@ -66,9 +66,9 @@ export interface ExecutionContract {
   id: string;
   sessionId: string;
   userGoal: string;
-  allowedTools: string[];
-  allowedRecipients: string[];
-  restrictedDataCategories: string[];
+  allowedTools: readonly string[];
+  allowedRecipients: readonly string[];
+  restrictedDataCategories: readonly string[];
   externalExportPermitted: boolean;
   createdAt: number;
   userId: string;

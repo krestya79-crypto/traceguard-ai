@@ -291,7 +291,7 @@ Respond ONLY with a valid JSON object:
 export async function generateAgentPlanOrAction(params: {
   userTask: string
   contractGoal: string
-  allowedTools: string[]
+  allowedTools: readonly string[]
   context: string
 }): Promise<{
   thought: string

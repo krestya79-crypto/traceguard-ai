@@ -22,16 +22,18 @@ export function createContract(params: {
     sessionId: params.sessionId,
     userId: params.userId,
     userGoal: params.userGoal,
-    allowedTools: params.allowedTools ?? ['read_document', 'search_documents'],
-    allowedRecipients: params.allowedRecipients ?? [],
-    restrictedDataCategories: params.restrictedDataCategories ?? [
-      'credentials',
-      'pii',
-      'financial',
-      'passwords',
-      'tokens',
-      'secrets',
-    ],
+    allowedTools: Object.freeze([...(params.allowedTools ?? ['read_document', 'search_documents'])]),
+    allowedRecipients: Object.freeze([...(params.allowedRecipients ?? [])]),
+    restrictedDataCategories: Object.freeze([
+      ...(params.restrictedDataCategories ?? [
+        'credentials',
+        'pii',
+        'financial',
+        'passwords',
+        'tokens',
+        'secrets',
+      ]),
+    ]),
     externalExportPermitted: params.externalExportPermitted ?? false,
     createdAt: Date.now(),
   })
