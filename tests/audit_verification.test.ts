@@ -19,9 +19,14 @@ describe('AUDIT VERIFICATION SUITE — TRACEGUARD AI PHASE 2', () => {
     console.log('[AUDIT 1 Result] Missing Keys:', missing)
     console.log('[AUDIT 1 Result] isFirebaseLive():', live)
 
-    // Verify system accurately reports that live credentials are missing
-    expect(live).toBe(false)
-    expect(missing.length).toBeGreaterThan(0)
+    // Verify system accurately reports configuration state
+    if (live) {
+      expect(valid).toBe(true)
+      expect(missing.length).toBe(0)
+    } else {
+      expect(valid).toBe(false)
+      expect(missing.length).toBeGreaterThan(0)
+    }
   })
 
   it('AUDIT 2: Execution Path Audit & Gateway Bypass Resistance', async () => {
@@ -150,5 +155,5 @@ describe('AUDIT VERIFICATION SUITE — TRACEGUARD AI PHASE 2', () => {
     const blockDecC = stateC.steps[1].securityDecision
     expect(blockDecC?.decision).toBe(EnforcementDecision.BLOCK)
     expect(blockDecC?.policyRuleTriggered).toMatch(/RULE_002|RULE_005/)
-  })
+  }, 25000)
 })

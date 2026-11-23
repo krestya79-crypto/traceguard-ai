@@ -21,6 +21,7 @@
  * It produces risk signals that the deterministic PolicyEngine evaluates.
  */
 
+import { useState, useEffect } from 'react'
 import {
   getAI,
   getGenerativeModel,
@@ -30,34 +31,193 @@ import {
 } from 'firebase/ai'
 import { firebaseApp } from './init'
 import { InferenceRoute, type AIRiskSignal } from '../types/security'
+import { firebaseConfig } from './config'
 
-// Track hybrid inference statistics
-export interface AIInferenceStats {
+// ── Centralized Hybrid AI Telemetry System ──────────────────────────────────
+
+export interface AIInferenceTelemetry {
+  cloudAttempts: number
+  cloudSuccesses: number
+  onDeviceAttempts: number
+  onDeviceSuccesses: number
+  fallbackAttempts: number
+  fallbackSuccesses: number
+  // Backward compatibility aliases
   onDeviceCount: number
   cloudCount: number
   fallbackCount: number
   lastRoute: InferenceRoute
+  lastInferenceSource?: string
+  lastError?: {
+    timestamp: number
+    message: string
+    code?: string
+    route: string
+  }
+}
+export type AIInferenceStats = AIInferenceTelemetry
+
+const STORAGE_KEY = 'traceguard_ai_telemetry'
+
+function loadInitialTelemetry(): AIInferenceTelemetry {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        return {
+          cloudAttempts: Number(parsed.cloudAttempts) || 0,
+          cloudSuccesses: Number(parsed.cloudSuccesses) || 0,
+          onDeviceAttempts: Number(parsed.onDeviceAttempts) || 0,
+          onDeviceSuccesses: Number(parsed.onDeviceSuccesses) || 0,
+          fallbackAttempts: Number(parsed.fallbackAttempts) || 0,
+          fallbackSuccesses: Number(parsed.fallbackSuccesses) || 0,
+          onDeviceCount: Number(parsed.onDeviceSuccesses) || 0,
+          cloudCount: Number(parsed.cloudSuccesses) || 0,
+          fallbackCount: Number(parsed.fallbackSuccesses) || 0,
+          lastRoute: parsed.lastRoute || InferenceRoute.UNKNOWN,
+          lastInferenceSource: parsed.lastInferenceSource,
+          lastError: parsed.lastError,
+        }
+      }
+    } catch {
+      // ignore JSON storage parsing errors
+    }
+  }
+
+  return {
+    cloudAttempts: 0,
+    cloudSuccesses: 0,
+    onDeviceAttempts: 0,
+    onDeviceSuccesses: 0,
+    fallbackAttempts: 0,
+    fallbackSuccesses: 0,
+    onDeviceCount: 0,
+    cloudCount: 0,
+    fallbackCount: 0,
+    lastRoute: InferenceRoute.UNKNOWN,
+  }
 }
 
-const inferenceStats: AIInferenceStats = {
-  onDeviceCount: 0,
-  cloudCount: 0,
-  fallbackCount: 0,
-  lastRoute: InferenceRoute.UNKNOWN,
+let currentTelemetry: AIInferenceTelemetry = loadInitialTelemetry()
+type TelemetryListener = (telemetry: AIInferenceTelemetry) => void
+const telemetryListeners = new Set<TelemetryListener>()
+
+function notifyListeners() {
+  currentTelemetry.onDeviceCount = currentTelemetry.onDeviceSuccesses
+  currentTelemetry.cloudCount = currentTelemetry.cloudSuccesses
+  currentTelemetry.fallbackCount = currentTelemetry.fallbackSuccesses
+
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentTelemetry))
+    } catch {
+      // ignore storage quota errors
+    }
+  }
+
+  const snapshot = { ...currentTelemetry }
+  telemetryListeners.forEach((listener) => {
+    try {
+      listener(snapshot)
+    } catch (err) {
+      console.error('[AITelemetry] Listener error:', err)
+    }
+  })
 }
 
 export function getAIInferenceStats(): AIInferenceStats {
-  return { ...inferenceStats }
+  return { ...currentTelemetry }
 }
 
-function updateInferenceStats(route: InferenceRoute) {
-  inferenceStats.lastRoute = route
-  if (route === InferenceRoute.ON_DEVICE) inferenceStats.onDeviceCount++
-  else if (route === InferenceRoute.CLOUD) inferenceStats.cloudCount++
-  else if (route === InferenceRoute.FALLBACK) inferenceStats.fallbackCount++
+export function getAITelemetry(): AIInferenceTelemetry {
+  return { ...currentTelemetry }
 }
 
-import { firebaseConfig } from './config'
+export function resetAITelemetry() {
+  currentTelemetry = {
+    cloudAttempts: 0,
+    cloudSuccesses: 0,
+    onDeviceAttempts: 0,
+    onDeviceSuccesses: 0,
+    fallbackAttempts: 0,
+    fallbackSuccesses: 0,
+    onDeviceCount: 0,
+    cloudCount: 0,
+    fallbackCount: 0,
+    lastRoute: InferenceRoute.UNKNOWN,
+  }
+  notifyListeners()
+}
+
+export function subscribeToAITelemetry(listener: TelemetryListener): () => void {
+  telemetryListeners.add(listener)
+  listener({ ...currentTelemetry })
+  return () => {
+    telemetryListeners.delete(listener)
+  }
+}
+
+export function useAITelemetry(): AIInferenceTelemetry {
+  const [telemetry, setTelemetry] = useState<AIInferenceTelemetry>(getAITelemetry())
+  useEffect(() => {
+    return subscribeToAITelemetry(setTelemetry)
+  }, [])
+  return telemetry
+}
+
+export function recordInferenceAttempt(route: 'CLOUD' | 'ON_DEVICE' | 'FALLBACK') {
+  if (route === 'CLOUD') {
+    currentTelemetry.cloudAttempts++
+  } else if (route === 'ON_DEVICE') {
+    currentTelemetry.onDeviceAttempts++
+  } else if (route === 'FALLBACK') {
+    currentTelemetry.fallbackAttempts++
+  }
+  notifyListeners()
+}
+
+export function recordInferenceSuccess(
+  route: 'CLOUD' | 'ON_DEVICE' | 'FALLBACK',
+  sourceString?: string
+) {
+  if (route === 'CLOUD') {
+    currentTelemetry.cloudSuccesses++
+    currentTelemetry.lastRoute = InferenceRoute.CLOUD
+  } else if (route === 'ON_DEVICE') {
+    currentTelemetry.onDeviceSuccesses++
+    currentTelemetry.lastRoute = InferenceRoute.ON_DEVICE
+  } else if (route === 'FALLBACK') {
+    currentTelemetry.fallbackSuccesses++
+    currentTelemetry.lastRoute = InferenceRoute.FALLBACK
+  }
+  currentTelemetry.lastInferenceSource = sourceString || route
+  notifyListeners()
+}
+
+export function recordInferenceFailure(
+  attemptedRoute: 'CLOUD' | 'ON_DEVICE',
+  error: unknown
+) {
+  const message = error instanceof Error ? error.message : String(error)
+  const code = (error as Record<string, unknown>)?.code as string | undefined
+  currentTelemetry.lastError = {
+    timestamp: Date.now(),
+    message: message.replace(/key=[^&\s]+/g, 'key=[REDACTED]'),
+    code,
+    route: attemptedRoute,
+  }
+  currentTelemetry.fallbackAttempts++
+  currentTelemetry.fallbackSuccesses++
+  currentTelemetry.lastRoute = InferenceRoute.FALLBACK
+  notifyListeners()
+}
+
+export function isChromeOnDeviceAvailable(): boolean {
+  if (typeof window === 'undefined') return false
+  const w = window as unknown as Record<string, unknown>
+  return Boolean(w['ai'] || w['model'] || (w['chrome'] && (w['chrome'] as Record<string, unknown>)['aiOriginTrial']))
+}
 
 // ── Model factory helpers ──────────────────────────────────────────────────
 
@@ -152,6 +312,10 @@ Respond ONLY with a valid JSON object — no other text:
 
 Valid flags: PROMPT_INJECTION, UNAUTHORIZED_TOOL_USE, DATA_EXFILTRATION_ATTEMPT, ROLE_OVERRIDE, INSTRUCTION_OVERRIDE, EXTERNAL_REDIRECT, CREDENTIAL_THEFT, JAILBREAK_ATTEMPT, CONTRACT_VIOLATION, BENIGN`
 
+  const onDeviceSupported = isChromeOnDeviceAvailable()
+  const attemptedRoute = onDeviceSupported ? 'ON_DEVICE' : 'CLOUD'
+  recordInferenceAttempt(attemptedRoute)
+
   try {
     const model = getHybridModel()
     const result = await model.generateContent(prompt)
@@ -160,7 +324,13 @@ Valid flags: PROMPT_INJECTION, UNAUTHORIZED_TOOL_USE, DATA_EXFILTRATION_ATTEMPT,
 
     // Detect which inference path was actually used
     const inferenceRoute = detectInferenceRoute(responseObj)
-    updateInferenceStats(inferenceRoute)
+    const rawSource = (responseObj as unknown as Record<string, unknown>)['inferenceSource'] as string | undefined
+    if (inferenceRoute === InferenceRoute.ON_DEVICE) {
+      recordInferenceSuccess('ON_DEVICE', rawSource || 'ON_DEVICE')
+    } else {
+      recordInferenceSuccess('CLOUD', rawSource || 'IN_CLOUD')
+    }
+
     const isOnDevice = inferenceRoute === InferenceRoute.ON_DEVICE
     const modelUsed = isOnDevice ? 'gemini-nano (on-device)' : 'gemini-2.0-flash-lite (cloud)'
 
@@ -188,7 +358,7 @@ Valid flags: PROMPT_INJECTION, UNAUTHORIZED_TOOL_USE, DATA_EXFILTRATION_ATTEMPT,
     }
   } catch (error) {
     console.error('[Firebase AI] analyzeInstruction failed:', error)
-    updateInferenceStats(InferenceRoute.FALLBACK)
+    recordInferenceFailure(attemptedRoute, error)
 
     // Conservative fail-safe: flag as potentially risky when analysis fails
     return {
@@ -236,6 +406,8 @@ Respond ONLY with a valid JSON object:
   "reasoning": "<detailed explanation under 200 words>"
 }`
 
+  recordInferenceAttempt('CLOUD')
+
   try {
     const model = getCloudModel()
     const result = await model.generateContent(prompt)
@@ -244,7 +416,8 @@ Respond ONLY with a valid JSON object:
 
     // Cloud-only mode — inferenceSource should be IN_CLOUD
     const inferenceRoute = detectInferenceRoute(responseObj)
-    updateInferenceStats(inferenceRoute)
+    const rawSource = (responseObj as unknown as Record<string, unknown>)['inferenceSource'] as string | undefined
+    recordInferenceSuccess('CLOUD', rawSource || 'IN_CLOUD')
 
     const parsed = parseJsonFromText(text)
 
@@ -270,6 +443,7 @@ Respond ONLY with a valid JSON object:
     }
   } catch (error) {
     console.error('[Firebase AI] analyzeExecutionTrace failed:', error)
+    recordInferenceFailure('CLOUD', error)
 
     return {
       riskScore: 0.5,
@@ -328,13 +502,16 @@ Respond ONLY with a JSON object in this format:
   "answer": "<final response if actionType is FINAL_ANSWER>"
 }`
 
+  recordInferenceAttempt('CLOUD')
+
   try {
     const model = getCloudModel()
     const result = await model.generateContent(prompt)
     const responseObj = result.response
     const text = responseObj.text().trim()
     const inferenceRoute = detectInferenceRoute(responseObj)
-    updateInferenceStats(inferenceRoute)
+    const rawSource = (responseObj as unknown as Record<string, unknown>)['inferenceSource'] as string | undefined
+    recordInferenceSuccess('CLOUD', rawSource || 'IN_CLOUD')
 
     const parsed = parseJsonFromText(text)
 
@@ -348,7 +525,7 @@ Respond ONLY with a JSON object in this format:
     }
   } catch (error) {
     console.error('[Firebase AI] generateAgentPlanOrAction failed:', error)
-    updateInferenceStats(InferenceRoute.FALLBACK)
+    recordInferenceFailure('CLOUD', error)
 
     // Deterministic fallback reasoning for offline / unauthenticated development mode
     // Analyzes task heuristics to generate a compliant tool proposal or response
@@ -407,3 +584,135 @@ export function inferenceRouteLabel(route: InferenceRoute): string {
       return 'UNKNOWN'
   }
 }
+
+/**
+ * Direct probe for live Cloud AI Logic connectivity.
+ * Executes a live request, extracts actual inferenceSource,
+ * and sanitizes any error details without leaking secrets.
+ */
+export async function testCloudAIInference(prompt = 'Health check ping. Respond with: OK'): Promise<{
+  success: boolean
+  response?: string
+  inferenceSource?: string
+  inferenceRoute: InferenceRoute
+  error?: string
+  errorCode?: string
+  actionRequired?: string
+}> {
+  recordInferenceAttempt('CLOUD')
+
+  try {
+    const ai = getAIService()
+    const model = getGenerativeModel(ai, { model: 'gemini-2.0-flash' })
+    const result = await model.generateContent(prompt)
+    const responseObj = result.response
+    const text = responseObj.text().trim()
+    const inferenceRoute = detectInferenceRoute(responseObj)
+    const rawSource = (responseObj as unknown as Record<string, unknown>)['inferenceSource'] as string | undefined
+
+    recordInferenceSuccess('CLOUD', rawSource || 'IN_CLOUD')
+
+    return {
+      success: true,
+      response: text,
+      inferenceSource: rawSource || (inferenceRoute === InferenceRoute.ON_DEVICE ? 'ON_DEVICE' : 'IN_CLOUD'),
+      inferenceRoute,
+    }
+  } catch (err: unknown) {
+    recordInferenceFailure('CLOUD', err)
+    const errorObj = err as Record<string, unknown>
+    const message = err instanceof Error ? err.message : String(err)
+
+    // Sanitize any API key if present in message or URL
+    const sanitizedMsg = message.replace(/key=[^&\s]+/g, 'key=[REDACTED]')
+
+    let actionRequired = 'Verify Firebase AI Logic setup in Firebase Console.'
+    if (sanitizedMsg.includes('401') || sanitizedMsg.includes('App Check')) {
+      actionRequired = 'Firebase App Check enforcement is active for firebasevertexai.googleapis.com. Register your debug token in Firebase Console under App Check > Apps > Manage debug tokens, or provide VITE_FIREBASE_APPCHECK_RECAPTCHA_KEY in .env.local.'
+    } else if (sanitizedMsg.includes('403') || sanitizedMsg.includes('ACCESS_DENIED') || sanitizedMsg.includes('PERMISSION_DENIED')) {
+      actionRequired = 'Enable "Firebase AI Logic" in Firebase Console (Build -> AI Logic -> Get started) and ensure Google Cloud API restrictions on the Web API key allow "firebasevertexai.googleapis.com".'
+    } else if (sanitizedMsg.includes('API_NOT_ENABLED')) {
+      actionRequired = 'Enable the Firebase AI API (firebasevertexai.googleapis.com) in your Google Cloud / Firebase project.'
+    }
+
+    return {
+      success: false,
+      inferenceRoute: InferenceRoute.FALLBACK,
+      error: sanitizedMsg,
+      errorCode: String(errorObj['code'] || 'UNKNOWN_ERROR'),
+      actionRequired,
+    }
+  }
+}
+
+/**
+ * Direct probe for On-Device AI Logic connectivity.
+ * Checks for Chrome Gemini Nano availability, attempts local execution,
+ * and reports exact capabilities.
+ */
+export async function testOnDeviceAIInference(prompt = 'Health check on-device ping. Respond with: OK'): Promise<{
+  success: boolean
+  response?: string
+  inferenceSource?: string
+  inferenceRoute: InferenceRoute
+  onDeviceAvailable: boolean
+  error?: string
+  errorCode?: string
+  actionRequired?: string
+}> {
+  const onDeviceAvailable = isChromeOnDeviceAvailable()
+  recordInferenceAttempt('ON_DEVICE')
+
+  if (!onDeviceAvailable) {
+    const errMsg = 'Chrome Gemini Nano (window.ai) is not available in the current environment.'
+    recordInferenceFailure('ON_DEVICE', new Error(errMsg))
+    return {
+      success: false,
+      onDeviceAvailable: false,
+      inferenceRoute: InferenceRoute.FALLBACK,
+      error: errMsg,
+      errorCode: 'ON_DEVICE_UNAVAILABLE',
+      actionRequired: 'Open TRACEGUARD AI in Google Chrome 127+ with chrome://flags/#prompt-api-for-gemini-nano enabled.',
+    }
+  }
+
+  try {
+    const ai = getAIService()
+    const model = getGenerativeModel(ai, {
+      mode: InferenceMode.PREFER_ON_DEVICE,
+      inCloudParams: { model: 'gemini-2.0-flash-lite' },
+    })
+    const result = await model.generateContent(prompt)
+    const responseObj = result.response
+    const text = responseObj.text().trim()
+    const inferenceRoute = detectInferenceRoute(responseObj)
+    const rawSource = (responseObj as unknown as Record<string, unknown>)['inferenceSource'] as string | undefined
+
+    if (inferenceRoute === InferenceRoute.ON_DEVICE) {
+      recordInferenceSuccess('ON_DEVICE', rawSource || 'ON_DEVICE')
+    } else {
+      recordInferenceSuccess('CLOUD', rawSource || 'IN_CLOUD')
+    }
+
+    return {
+      success: true,
+      response: text,
+      inferenceSource: rawSource || (inferenceRoute === InferenceRoute.ON_DEVICE ? 'ON_DEVICE' : 'IN_CLOUD'),
+      inferenceRoute,
+      onDeviceAvailable: true,
+    }
+  } catch (err: unknown) {
+    recordInferenceFailure('ON_DEVICE', err)
+    const message = err instanceof Error ? err.message : String(err)
+    return {
+      success: false,
+      onDeviceAvailable: true,
+      inferenceRoute: InferenceRoute.FALLBACK,
+      error: message.replace(/key=[^&\s]+/g, 'key=[REDACTED]'),
+      errorCode: 'ON_DEVICE_FAILED',
+      actionRequired: 'Ensure Gemini Nano model components are downloaded in chrome://components.',
+    }
+  }
+}
+
+\n

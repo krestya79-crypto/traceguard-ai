@@ -9,17 +9,21 @@ import {
   FileText,
   Cpu,
   Database,
+  Settings as SettingsIcon,
 } from 'lucide-react'
 import { isFirebaseLive } from '../../firebase/firestore'
-import { getAIInferenceStats, inferenceRouteLabel } from '../../firebase/ai'
+import { inferenceRouteLabel, useAITelemetry } from '../../firebase/ai'
+import { getCurrentUser } from '../../firebase/auth'
 
 export type NavTab =
+  | 'judge-portal'
   | 'dashboard'
   | 'agent-lab'
   | 'attack-simulator'
   | 'provenance-graph'
   | 'runtime-guard'
   | 'security-reports'
+  | 'settings'
 
 interface SidebarProps {
   activeTab: NavTab
@@ -28,15 +32,17 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab }) => {
   const firebaseOnline = isFirebaseLive()
-  const aiStats = getAIInferenceStats()
+  const aiStats = useAITelemetry()
 
-  const navItems: { id: NavTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  const navItems: { id: NavTab; label: string; icon: React.ComponentType<{ className?: string }>; highlight?: boolean }[] = [
+    { id: 'judge-portal', label: 'Judge Portal', icon: Shield, highlight: true },
     { id: 'dashboard', label: 'Security Dashboard', icon: Activity },
     { id: 'agent-lab', label: 'Agent Lab', icon: Terminal },
     { id: 'attack-simulator', label: 'Attack Simulator', icon: Zap },
     { id: 'provenance-graph', label: 'Provenance Graph', icon: GitBranch },
     { id: 'runtime-guard', label: 'Runtime Guard & Policies', icon: Lock },
     { id: 'security-reports', label: 'Audit & Reports', icon: FileText },
+    { id: 'settings', label: 'Settings & Status', icon: SettingsIcon },
   ]
 
   return (
@@ -71,14 +77,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab }) => {
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium transition-all ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                 isActive
-                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-sm'
+                  ? item.highlight
+                    ? 'bg-purple-600/20 text-purple-300 border border-purple-500/40 shadow-sm'
+                    : 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-sm'
+                  : item.highlight
+                  ? 'text-purple-300/80 hover:text-purple-200 hover:bg-purple-950/40 border border-purple-900/40'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-navy-800/60 border border-transparent'
               }`}
             >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
-              <span>{item.label}</span>
+              <Icon
+                className={`w-4 h-4 shrink-0 ${
+                  isActive
+                    ? item.highlight
+                      ? 'text-purple-400'
+                      : 'text-cyan-400'
+                    : item.highlight
+                    ? 'text-purple-400'
+                    : 'text-slate-400'
+                }`}
+              />
+              <span className="truncate">{item.label}</span>
+              {item.highlight && (
+                <span className="ml-auto px-1.5 py-0.5 rounded text-[9px] font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                  DEMO
+                </span>
+              )}
             </button>
           )
         })}
@@ -103,12 +128,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab }) => {
           </span>
           <span
             className={`px-1.5 py-0.5 rounded font-semibold text-[10px] ${
-              firebaseOnline
+              firebaseOnline && Boolean(getCurrentUser())
                 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                 : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30'
             }`}
           >
-            {firebaseOnline ? 'ONLINE' : 'LOCAL BUFFER'}
+            {firebaseOnline && Boolean(getCurrentUser()) ? 'ONLINE (AUTH)' : 'LOCAL BUFFER'}
           </span>
         </div>
 

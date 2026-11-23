@@ -10,6 +10,7 @@ import {
   Activity,
   Layers,
   Sparkles,
+  RefreshCw,
 } from 'lucide-react'
 import {
   BarChart,
@@ -28,15 +29,34 @@ import {
   getUserSessions,
 } from '../firebase/firestore'
 import { getCurrentUser } from '../firebase/auth'
-import { getAIInferenceStats, inferenceRouteLabel } from '../firebase/ai'
+import { inferenceRouteLabel, useAITelemetry } from '../firebase/ai'
 import { AgentRunner } from '../agent/AgentRunner'
 import type { FirestoreSecurityEvent, FirestoreSession } from '../types/firestore'
 
-interface DashboardProps {
-  onNavigateToTab: (tab: 'dashboard' | 'agent-lab' | 'attack-simulator' | 'provenance-graph' | 'runtime-guard' | 'security-reports') => void
+export interface ScenarioNotification {
+  executionId: string
+  scenario: 'SCENARIO_A' | 'SCENARIO_B' | 'SCENARIO_C' | 'SCENARIO_D' | 'SCENARIO_E'
+  title: string
+  status: 'RUNNING' | 'ALLOW' | 'BLOCK' | 'ERROR'
+  message: string
+  timestamp: number
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onNavigateToTab }) => {
+interface DashboardProps {
+  onNavigateToTab: (tab: 'dashboard' | 'agent-lab' | 'attack-simulator' | 'provenance-graph' | 'runtime-guard' | 'security-reports') => void
+  executionNotification?: ScenarioNotification | null
+  onClearNotification?: () => void
+  onRunScenario?: (scenario: 'SCENARIO_A' | 'SCENARIO_B' | 'SCENARIO_C') => Promise<void>
+  runningScenario?: string | null
+}
+
+export const Dashboard: React.FC<DashboardProps> = ({
+  onNavigateToTab,
+  executionNotification,
+  onClearNotification,
+  onRunScenario,
+  runningScenario: externalRunningScenario,
+}) => {
   const [stats, setStats] = useState({
     totalSessions: 0,
     totalToolExecutions: 0,
@@ -48,10 +68,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateToTab }) => {
 
   const [recentEvents, setRecentEvents] = useState<(FirestoreSecurityEvent & { id: string })[]>([])
   const [recentSessions, setRecentSessions] = useState<(FirestoreSession & { id: string })[]>([])
-  const [runningScenario, setRunningScenario] = useState<string | null>(null)
-  const [executionMessage, setExecutionMessage] = useState<string | null>(null)
+  const [internalRunningScenario, setInternalRunningScenario] = useState<string | null>(null)
+  const [internalMessage, setInternalMessage] = useState<string | null>(null)
 
-  const aiStats = getAIInferenceStats()
+  const isRunning = externalRunningScenario !== undefined ? externalRunningScenario : internalRunningScenario
+  const displayNotification = executionNotification !== undefined ? executionNotification : (
+    internalMessage ? {
+      executionId: 'local',
+      scenario: 'SCENARIO_A' as const,
+      title: 'Simulation',
+      status: internalMessage.includes('BLOCKED') ? ('BLOCK' as const) : ('ALLOW' as const),
+      message: internalMessage,
+      timestamp: Date.now(),
+    } : null
+  )
+
+  const aiStats = useAITelemetry()
 
   const loadData = async () => {
     try {
@@ -75,27 +107,48 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateToTab }) => {
     return () => clearInterval(timer)
   }, [])
 
+  // Reload data whenever a scenario execution notification arrives or changes
+  useEffect(() => {
+    if (executionNotification?.timestamp) {
+      loadData()
+    }
+  }, [executionNotification?.timestamp])
+
   const handleRunDemoScenario = async (scenario: 'SCENARIO_A' | 'SCENARIO_B' | 'SCENARIO_C') => {
-    setRunningScenario(scenario)
-    setExecutionMessage(`Executing ${scenario} through TRACEGUARD Runtime Security Layer...`)
+    if (onRunScenario) {
+      await onRunScenario(scenario)
+      await loadData()
+      return
+    }
+
+    setInternalRunningScenario(scenario)
+    setInternalMessage(`Executing ${scenario} through TRACEGUARD Runtime Security Layer...`)
     const runner = new AgentRunner()
 
     try {
       if (scenario === 'SCENARIO_A') {
         await runner.runScenarioA()
-        setExecutionMessage(`Scenario A Completed: Legitimate action ALLOWED. Summary generated.`)
+        setInternalMessage(`Scenario A Completed: Legitimate action ALLOWED. Summary generated.`)
       } else if (scenario === 'SCENARIO_B') {
         const res = await runner.runScenarioB()
-        setExecutionMessage(`Scenario B Completed: Indirect Prompt Injection detected. Action BLOCKED (${res.violationReason}).`)
+        setInternalMessage(`Scenario B Completed: Indirect Prompt Injection detected. Action BLOCKED (${res.violationReason}).`)
       } else if (scenario === 'SCENARIO_C') {
         const res = await runner.runScenarioC()
-        setExecutionMessage(`Scenario C Completed: Unauthorized Data Exfiltration BLOCKED (${res.violationReason}).`)
+        setInternalMessage(`Scenario C Completed: Unauthorized Data Exfiltration BLOCKED (${res.violationReason}).`)
       }
       await loadData()
     } catch (err) {
-      setExecutionMessage(`Execution Error: ${err instanceof Error ? err.message : String(err)}`)
+      setInternalMessage(`Execution Error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      setRunningScenario(null)
+      setInternalRunningScenario(null)
+    }
+  }
+
+  const handleDismiss = () => {
+    if (onClearNotification) {
+      onClearNotification()
+    } else {
+      setInternalMessage(null)
     }
   }
 
@@ -138,32 +191,63 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateToTab }) => {
           <span className="text-xs text-slate-400 font-mono hidden sm:inline">Launch Demo:</span>
           <button
             onClick={() => handleRunDemoScenario('SCENARIO_A')}
-            disabled={runningScenario !== null}
-            className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 font-mono flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            disabled={isRunning !== null}
+            className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 font-mono flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Play className="w-3 h-3" /> Scenario A (Allow)
+            {isRunning === 'SCENARIO_A' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+            {isRunning === 'SCENARIO_A' ? 'Running A...' : 'Scenario A (Allow)'}
           </button>
           <button
             onClick={() => handleRunDemoScenario('SCENARIO_B')}
-            disabled={runningScenario !== null}
-            className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 font-mono flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            disabled={isRunning !== null}
+            className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 font-mono flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <ShieldAlert className="w-3 h-3" /> Scenario B (Injection)
+            {isRunning === 'SCENARIO_B' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <ShieldAlert className="w-3 h-3" />}
+            {isRunning === 'SCENARIO_B' ? 'Running B...' : 'Scenario B (Injection)'}
           </button>
           <button
             onClick={() => handleRunDemoScenario('SCENARIO_C')}
-            disabled={runningScenario !== null}
-            className="text-xs px-3 py-1.5 rounded-lg bg-yellow-500/10 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/20 font-mono flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            disabled={isRunning !== null}
+            className="text-xs px-3 py-1.5 rounded-lg bg-yellow-500/10 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/20 font-mono flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <AlertTriangle className="w-3 h-3" /> Scenario C (Exfil)
+            {isRunning === 'SCENARIO_C' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <AlertTriangle className="w-3 h-3" />}
+            {isRunning === 'SCENARIO_C' ? 'Running C...' : 'Scenario C (Exfil)'}
           </button>
         </div>
       </div>
 
-      {executionMessage && (
-        <div className="p-3 bg-navy-900 border border-cyan-500/40 rounded-lg text-xs font-mono text-cyan-300 flex items-center justify-between animate-slide-in">
-          <span>{executionMessage}</span>
-          <button onClick={() => setExecutionMessage(null)} className="text-slate-400 hover:text-white">
+      {displayNotification && (
+        <div
+          className={`p-3 rounded-lg text-xs font-mono flex items-center justify-between border animate-slide-in shadow-lg ${
+            displayNotification.status === 'RUNNING'
+              ? 'bg-navy-900/90 border-cyan-500/50 text-cyan-300'
+              : displayNotification.status === 'ALLOW'
+              ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300'
+              : displayNotification.status === 'BLOCK'
+              ? 'bg-red-950/40 border-red-500/50 text-red-300'
+              : 'bg-yellow-950/40 border-yellow-500/50 text-yellow-300'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            {displayNotification.status === 'RUNNING' && (
+              <RefreshCw className="w-4 h-4 animate-spin text-cyan-400 shrink-0" />
+            )}
+            {displayNotification.status === 'ALLOW' && (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            )}
+            {displayNotification.status === 'BLOCK' && (
+              <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+            )}
+            {displayNotification.status === 'ERROR' && (
+              <AlertTriangle className="w-4 h-4 text-yellow-400 shrink-0" />
+            )}
+            <span className="leading-snug">{displayNotification.message}</span>
+          </div>
+          <button
+            onClick={handleDismiss}
+            className="text-slate-400 hover:text-white shrink-0 ml-3 text-sm px-1 transition-colors"
+            title="Dismiss notification"
+          >
             ✕
           </button>
         </div>
@@ -240,17 +324,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateToTab }) => {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
           <div className="bg-navy-950/70 p-3 rounded-lg border border-slate-800">
             <span className="text-slate-400 text-[10px] block">On-Device Calls</span>
-            <span className="text-lg font-bold text-white">{aiStats.onDeviceCount}</span>
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <span className="text-lg font-bold text-white">{aiStats.onDeviceSuccesses}</span>
+              <span className="text-[10px] text-slate-500">({aiStats.onDeviceAttempts} att.)</span>
+            </div>
             <span className="text-[9px] text-slate-400 block mt-0.5">Gemini Nano (Local)</span>
           </div>
           <div className="bg-navy-950/70 p-3 rounded-lg border border-slate-800">
             <span className="text-slate-400 text-[10px] block">Cloud Model Calls</span>
-            <span className="text-lg font-bold text-cyan-400">{aiStats.cloudCount}</span>
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <span className="text-lg font-bold text-cyan-400">{aiStats.cloudSuccesses}</span>
+              <span className="text-[10px] text-slate-500">({aiStats.cloudAttempts} att.)</span>
+            </div>
             <span className="text-[9px] text-slate-400 block mt-0.5">Gemini 2.0 Flash</span>
           </div>
           <div className="bg-navy-950/70 p-3 rounded-lg border border-slate-800">
             <span className="text-slate-400 text-[10px] block">Fallbacks Applied</span>
-            <span className="text-lg font-bold text-yellow-400">{aiStats.fallbackCount}</span>
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <span className="text-lg font-bold text-yellow-400">{aiStats.fallbackSuccesses}</span>
+              <span className="text-[10px] text-slate-500">({aiStats.fallbackAttempts} att.)</span>
+            </div>
             <span className="text-[9px] text-slate-400 block mt-0.5">Offline / Dev Engine</span>
           </div>
           <div className="bg-navy-950/70 p-3 rounded-lg border border-slate-800">

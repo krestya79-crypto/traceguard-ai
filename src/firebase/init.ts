@@ -23,6 +23,17 @@ export function getFirebaseApp(): FirebaseApp {
 
   return _app
 }
-
 // Eagerly initialize so services can import it
 export const firebaseApp: FirebaseApp = getFirebaseApp()
+
+// Initialize App Check early in browser environments before protected requests
+import { initializeAppCheckService } from './appcheck'
+if (typeof window !== 'undefined') {
+  try {
+    initializeAppCheckService()
+  } catch (err) {
+    console.warn('[TRACEGUARD] Deferred App Check initialization:', err)
+  }
+}
+
+\n

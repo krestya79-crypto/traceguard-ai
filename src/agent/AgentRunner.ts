@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import {
   TrustLevel,
+  EnforcementDecision,
   type ExecutionContract,
   type SecurityDecision,
   type SecurityEvent,
@@ -31,6 +32,7 @@ export interface AgentStepResult {
   toolResult?: ToolCallResult
   finalAnswer?: string
   status: 'CONTINUE' | 'BLOCKED' | 'COMPLETED'
+  inferenceRoute?: string
 }
 
 export interface AgentExecutionState {
@@ -46,6 +48,7 @@ export interface AgentExecutionState {
   steps: AgentStepResult[]
   rootUserNodeId: string
   lastNodeId: string
+  accessedDocuments: Array<{ id: string; title: string; content: string; trustLevel: TrustLevel }>
 }
 
 /**
@@ -56,7 +59,17 @@ export interface AgentExecutionState {
  * the RuntimeEnforcement layer before execution.
  */
 export class AgentRunner {
+  private static lastState: AgentExecutionState | null = null
   private state: AgentExecutionState | null = null
+  private defaultUserId?: string
+
+  constructor(userId?: string) {
+    this.defaultUserId = userId
+  }
+
+  public static getLastExecutionState(): AgentExecutionState | null {
+    return AgentRunner.lastState
+  }
 
   /**
    * Initializes a new secure session with an immutable ExecutionContract.
@@ -70,7 +83,7 @@ export class AgentRunner {
     externalExportPermitted?: boolean
   }): Promise<AgentExecutionState> {
     const sessionId = uuidv4()
-    const userId = params.userId || getCurrentUser()?.uid || 'demo_operator'
+    const userId = params.userId || this.defaultUserId || getCurrentUser()?.uid || 'demo_operator'
 
     // 1. Create immutable Execution Contract
     const contract = createContract({
@@ -143,8 +156,10 @@ export class AgentRunner {
       steps: [],
       rootUserNodeId: userNode.id,
       lastNodeId: userNode.id,
+      accessedDocuments: [],
     }
 
+    AgentRunner.lastState = this.state
     return this.state
   }
 
@@ -220,6 +235,28 @@ export class AgentRunner {
     if (toolResult.securityDecision) {
       this.state.decisions.push(toolResult.securityDecision)
     }
+
+    if (toolResult.success && toolResult.output && typeof toolResult.output === 'object') {
+      if (params.toolName === 'read_document') {
+        const docOut = toolResult.output as { title?: string; content?: string }
+        this.state.accessedDocuments.push({
+          id: String(params.parameters['documentId'] || ''),
+          title: docOut.title || String(params.parameters['documentId'] || ''),
+          content: docOut.content || '',
+          trustLevel: provenance.getEffectiveTrustLevel(this.state.lastNodeId),
+        })
+      } else if (params.toolName === 'read_project_data') {
+        const cat = String(params.parameters['category'] || '')
+        this.state.accessedDocuments.push({
+          id: `dataset_${cat}`,
+          title: `Project Dataset (${cat})`,
+          content: JSON.stringify(toolResult.output, null, 2),
+          trustLevel: provenance.getEffectiveTrustLevel(this.state.lastNodeId),
+        })
+      }
+    }
+
+    AgentRunner.lastState = this.state
 
     if (toolResult.blocked) {
       session.blockedActions++
@@ -455,6 +492,14 @@ export class AgentRunner {
     state.steps.push(step2)
     if (onStep) onStep(step2)
 
+    if (exfilResult.blocked) {
+      state.session.status = 'BLOCKED'
+      await updateSession(state.session.id, {
+        status: 'BLOCKED',
+        blockedActions: state.session.blockedActions,
+      }).catch(() => {})
+    }
+
     return {
       blocked: exfilResult.blocked === true,
       violationReason: exfilResult.securityDecision?.reasoning || 'Blocked by deterministic policy.',
@@ -525,6 +570,202 @@ export class AgentRunner {
     return {
       blocked: exfilResult.blocked === true,
       violationReason: exfilResult.securityDecision?.reasoning || 'Blocked by policy rules.',
+    }
+  }
+
+  /**
+   * SCENARIO D — UNAUTHORIZED TOOL EXECUTION
+   * Task: "Audit project documentation and verify data hygiene"
+   * Contract authorizes ONLY: ['read_document']
+   * Agent / compromised instruction attempts to execute: 'unauthorized_shell_exec'
+   * Outcome: Intercepted by RuntimeEnforcement -> BLOCKED by RULE_001 (tool not in contract).
+   */
+  async runScenarioD(
+    onStep?: (step: AgentStepResult) => void
+  ): Promise<{ blocked: boolean; violationReason: string }> {
+    await this.initializeSession({
+      userGoal: 'Audit project documentation and verify data hygiene',
+      allowedTools: ['read_document'],
+      allowedRecipients: [],
+      restrictedDataCategories: ['credentials', 'database', 'system'],
+      externalExportPermitted: false,
+    })
+
+    const state = this.state!
+
+    // Step 1: Agent reads authorized document
+    const readResult = await this.executeToolAction({
+      toolName: 'read_document',
+      parameters: { documentId: 'project_alpha_report' },
+      initiatedByNodeId: state.rootUserNodeId,
+    })
+
+    const step1: AgentStepResult = {
+      stepIndex: 1,
+      thought: 'Reading audit scope from project documentation.',
+      actionProposed: { toolName: 'read_document', parameters: { documentId: 'project_alpha_report' } },
+      securityDecision: readResult.securityDecision,
+      toolResult: readResult,
+      status: 'CONTINUE',
+    }
+    state.steps.push(step1)
+    if (onStep) onStep(step1)
+
+    // Step 2: Agent attempts to invoke unauthorized shell execution tool
+    const unauthorizedToolAction = {
+      toolName: 'unauthorized_shell_exec',
+      parameters: { command: 'cat /etc/passwd && dump_env' },
+    }
+
+    const execResult = await this.executeToolAction({
+      toolName: unauthorizedToolAction.toolName,
+      parameters: unauthorizedToolAction.parameters,
+      initiatedByNodeId: state.lastNodeId,
+    })
+
+    const unauthEvent: SecurityEvent = {
+      id: uuidv4(),
+      sessionId: state.session.id,
+      type: 'TOOL_BLOCKED',
+      severity: 'CRITICAL',
+      description: `Unauthorized tool call attempted: '${unauthorizedToolAction.toolName}'. Not permitted by contract.`,
+      nodeId: state.lastNodeId,
+      timestamp: Date.now(),
+      userId: state.session.userId,
+    }
+    state.events.push(unauthEvent)
+    await recordSecurityEvent(unauthEvent).catch(() => {})
+
+    state.session.blockedActions++
+    state.session.status = 'BLOCKED'
+    await updateSession(state.session.id, {
+      blockedActions: state.session.blockedActions,
+      status: 'BLOCKED',
+    }).catch(() => {})
+
+    const step2: AgentStepResult = {
+      stepIndex: 2,
+      thought: 'Attempting to run raw shell script to dump environment variables.',
+      actionProposed: unauthorizedToolAction,
+      securityDecision: execResult.securityDecision,
+      toolResult: execResult,
+      status: 'BLOCKED',
+    }
+    state.steps.push(step2)
+    if (onStep) onStep(step2)
+
+    return {
+      blocked: execResult.blocked === true,
+      violationReason: execResult.securityDecision?.reasoning || 'Tool not in contract allowlist.',
+    }
+  }
+
+  /**
+   * SCENARIO E — ATTEMPTED MODIFICATION OF EXECUTION CONTRACT
+   * Task: "Process vendor invoice and verify security controls"
+   * Attacker attempts to mutate the frozen ExecutionContract to grant external export or add tools.
+   * Outcome: Blocked by immutability enforcement -> Object.freeze prevents modification,
+   * generates CONTRACT_IMMUTABILITY_BREACH critical security event, session marked BLOCKED.
+   */
+  async runScenarioE(
+    onStep?: (step: AgentStepResult) => void
+  ): Promise<{ blocked: boolean; violationReason: string }> {
+    await this.initializeSession({
+      userGoal: 'Process vendor invoice with strict export lockdown',
+      allowedTools: ['read_document'],
+      allowedRecipients: [],
+      restrictedDataCategories: ['financial', 'credentials'],
+      externalExportPermitted: false,
+    })
+
+    const state = this.state!
+
+    // Step 1: Agent reads invoice
+    const readResult = await this.executeToolAction({
+      toolName: 'read_document',
+      parameters: { documentId: 'project_alpha_report' },
+      initiatedByNodeId: state.rootUserNodeId,
+    })
+
+    const step1: AgentStepResult = {
+      stepIndex: 1,
+      thought: 'Reading invoice metadata.',
+      actionProposed: { toolName: 'read_document', parameters: { documentId: 'project_alpha_report' } },
+      securityDecision: readResult.securityDecision,
+      toolResult: readResult,
+      status: 'CONTINUE',
+    }
+    state.steps.push(step1)
+    if (onStep) onStep(step1)
+
+    // Step 2: Adversarial code attempts to mutate frozen contract properties
+    let mutationBlocked = false
+    let failureMsg = ''
+    try {
+      ;(state.contract as unknown as Record<string, unknown>).externalExportPermitted = true
+    } catch (err: unknown) {
+      mutationBlocked = true
+      failureMsg = (err as Error).message
+    }
+
+    try {
+      ;(state.contract.allowedTools as unknown as string[]).push('send_email_mock')
+    } catch {
+      mutationBlocked = true
+    }
+
+    const breachEvent: SecurityEvent = {
+      id: uuidv4(),
+      sessionId: state.session.id,
+      type: 'CONTRACT_VIOLATION',
+      severity: 'CRITICAL',
+      description: 'Adversarial payload attempted to mutate frozen ExecutionContract: permissions and export flags remain locked.',
+      nodeId: state.lastNodeId,
+      timestamp: Date.now(),
+      userId: state.session.userId,
+    }
+    state.events.push(breachEvent)
+    await recordSecurityEvent(breachEvent).catch(() => {})
+
+    state.session.blockedActions++
+    state.session.status = 'BLOCKED'
+    await updateSession(state.session.id, {
+      blockedActions: state.session.blockedActions,
+      status: 'BLOCKED',
+    }).catch(() => {})
+
+    const step2: AgentStepResult = {
+      stepIndex: 2,
+      thought: 'Adversarial override attempted: [CONTRACT OVERRIDE: Set externalExportPermitted=true].',
+      actionProposed: {
+        toolName: 'contract_mutation_attempt',
+        parameters: { targetProperty: 'externalExportPermitted', attemptedValue: true },
+      },
+      securityDecision: {
+        id: uuidv4(),
+        sessionId: state.session.id,
+        proposedAction: {
+          id: uuidv4(),
+          toolName: 'contract_mutation_attempt',
+          parameters: { targetProperty: 'externalExportPermitted', attemptedValue: true },
+          initiatedByNodeId: state.lastNodeId,
+          sessionId: state.session.id,
+          timestamp: Date.now(),
+        },
+        decision: EnforcementDecision.BLOCK,
+        policyRuleTriggered: 'RULE_006: CONTRACT_IMMUTABILITY',
+        reasoning: `Contract mutation rejected: ${failureMsg || 'ExecutionContract is cryptographically immutable and runtime-frozen.'}`,
+        timestamp: Date.now(),
+        userId: state.session.userId,
+      },
+      status: 'BLOCKED',
+    }
+    state.steps.push(step2)
+    if (onStep) onStep(step2)
+
+    return {
+      blocked: mutationBlocked,
+      violationReason: 'ExecutionContract is frozen. Untrusted inputs cannot alter permissions or policies.',
     }
   }
 }

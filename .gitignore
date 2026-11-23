@@ -11,8 +11,26 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
+!.env.example
 .env.local
 .env.*.local
+
+# Firebase service credentials and private keys
+*-firebase-adminsdk-*.json
+*service-account*.json
+*.pem
+*.key
+
+# Generated demo media and bundled media utilities
+test_sapi.wav
+test_voice.mp3
+video-submission/
+video-submission/*.wav
+video-submission/*.mp4
+video-submission/audio_build/
+video-submission/bin/
 
 # Editor directories and files
 .vscode/*

@@ -3,6 +3,7 @@ import type { User } from 'firebase/auth'
 import {
   onAuthChange,
   signInWithGoogle,
+  signInAsJudge,
   signOutUser,
   getCurrentUser,
 } from '../firebase/auth'
@@ -13,7 +14,9 @@ export interface AuthState {
   loading: boolean
   error: string | null
   isLive: boolean
+  isJudge: boolean
   signIn: () => Promise<User | null>
+  signInJudge: () => Promise<User | null>
   signOut: () => Promise<void>
 }
 
@@ -23,6 +26,11 @@ export function useAuth(): AuthState {
   const [error, setError] = useState<string | null>(null)
   const isLive = isFirebaseLive()
 
+  const isJudge = Boolean(
+    user?.isAnonymous ||
+    (user && (user.displayName?.includes('Judge') || user.email?.includes('judge')))
+  )
+
   useEffect(() => {
     const unsubscribe = onAuthChange(async (firebaseUser) => {
       setUser(firebaseUser)
@@ -30,9 +38,10 @@ export function useAuth(): AuthState {
 
       if (firebaseUser) {
         try {
+          const isAnon = firebaseUser.isAnonymous
           await upsertUser(firebaseUser.uid, {
-            email: firebaseUser.email || '',
-            displayName: firebaseUser.displayName || 'Security Operator',
+            email: firebaseUser.email || (isAnon ? `judge-${firebaseUser.uid.slice(0, 6)}@demo.traceguard.ai` : ''),
+            displayName: isAnon ? `Judge Demo (${firebaseUser.uid.slice(0, 6)})` : (firebaseUser.displayName || 'Security Operator'),
           })
         } catch (err) {
           console.warn('[useAuth] Profile sync warning:', err)
@@ -60,6 +69,23 @@ export function useAuth(): AuthState {
     }
   }
 
+  const signInJudge = async (): Promise<User | null> => {
+    setError(null)
+    setLoading(true)
+    try {
+      const judgeUser = await signInAsJudge()
+      setUser(judgeUser)
+      return judgeUser
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setError(message)
+      console.warn('[useAuth] Judge Anonymous Sign-In failed (falling back to local demo state):', err)
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const signOut = async (): Promise<void> => {
     setError(null)
     setLoading(true)
@@ -80,7 +106,9 @@ export function useAuth(): AuthState {
     loading,
     error,
     isLive,
+    isJudge,
     signIn,
+    signInJudge,
     signOut,
   }
 }

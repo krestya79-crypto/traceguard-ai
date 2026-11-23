@@ -2,6 +2,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInAnonymously,
   signOut,
   onAuthStateChanged,
   type Auth,
@@ -38,6 +39,22 @@ export async function signInWithGoogle(): Promise<User> {
   }
   const result = await signInWithPopup(a, googleProvider)
   return result.user
+}
+
+/**
+ * Sign in as an anonymous demo user (used by Hackathon Judges).
+ * Generates an isolated, real Firebase Auth UID so Firestore security rules
+ * enforce strict multi-tenant boundary checks without requiring personal Google credentials.
+ */
+export async function signInAsJudge(): Promise<User> {
+  const a = getFirebaseAuth()
+  if (!a) {
+    throw new Error(
+      'Firebase Authentication is unconfigured. Running in offline demo mode.'
+    )
+  }
+  const credential = await signInAnonymously(a)
+  return credential.user
 }
 
 export async function signOutUser(): Promise<void> {

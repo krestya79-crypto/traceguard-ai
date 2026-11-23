@@ -1,159 +1,99 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    --bg-main: #020817;
+    --bg-surface: #0a1529;
+    --bg-card: #0d1b33;
+    --border-subtle: rgba(51, 65, 85, 0.45);
+    --border-accent: rgba(6, 182, 212, 0.35);
+    --text-primary: #f8fafc;
+    --text-muted: #94a3b8;
+  }
+
   html {
-    background-color: #020818;
-    color: #f1f5f9;
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    scroll-behavior: smooth;
   }
 
   body {
-    background-color: #020818;
-    color: #f1f5f9;
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Accessibility: Respect user reduced-motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
-.card {
-  background-color: #0a1628;
+/* Reusable Cyber UI Components */
+.cyber-card {
+  background-color: #0d1b33;
   border: 1px solid rgba(51, 65, 85, 0.6);
   border-radius: 0.75rem;
+  box-shadow: 0 4px 12px -2px rgba(2, 8, 23, 0.6);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.card-hover {
-  background-color: #0a1628;
-  border: 1px solid rgba(51, 65, 85, 0.6);
-  border-radius: 0.75rem;
-  transition: all 0.2s ease-in-out;
-}
-.card-hover:hover {
-  border-color: rgba(6, 182, 212, 0.4);
-  box-shadow: 0 10px 15px -3px rgba(6, 182, 212, 0.05);
+.cyber-card:hover {
+  border-color: rgba(6, 182, 212, 0.3);
+  box-shadow: 0 6px 16px -2px rgba(6, 182, 212, 0.06);
 }
 
-.badge-trust-trusted {
-  background-color: rgba(16, 185, 129, 0.1);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  font-size: 0.75rem;
-  padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  font-family: monospace;
-}
-
-.badge-trust-system {
-  background-color: rgba(59, 130, 246, 0.1);
-  color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  font-size: 0.75rem;
-  padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  font-family: monospace;
-}
-
-.badge-trust-untrusted {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  font-size: 0.75rem;
-  padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  font-family: monospace;
-}
-
-.badge-trust-tool {
-  background-color: rgba(168, 85, 247, 0.1);
-  color: #c084fc;
+.cyber-card-purple {
+  background-color: #0f172a;
   border: 1px solid rgba(168, 85, 247, 0.3);
-  font-size: 0.75rem;
-  padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  font-family: monospace;
+  border-radius: 0.75rem;
 }
 
-.badge-trust-derived {
-  background-color: rgba(234, 179, 8, 0.1);
-  color: #facc15;
-  border: 1px solid rgba(234, 179, 8, 0.3);
-  font-size: 0.75rem;
-  padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  font-family: monospace;
+.cyber-card-purple:hover {
+  border-color: rgba(168, 85, 247, 0.5);
+  box-shadow: 0 6px 16px -2px rgba(168, 85, 247, 0.08);
 }
 
 .decision-allow {
-  background-color: rgba(16, 185, 129, 0.1);
+  background-color: rgba(16, 185, 129, 0.12);
   color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  border: 1px solid rgba(16, 185, 129, 0.35);
   border-radius: 0.5rem;
-  padding: 0.25rem 0.75rem;
+  padding: 0.25rem 0.625rem;
+  font-family: monospace;
 }
 
 .decision-block {
-  background-color: rgba(239, 68, 68, 0.1);
+  background-color: rgba(239, 68, 68, 0.12);
   color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  border: 1px solid rgba(239, 68, 68, 0.35);
   border-radius: 0.5rem;
-  padding: 0.25rem 0.75rem;
+  padding: 0.25rem 0.625rem;
+  font-family: monospace;
 }
 
-.decision-approval {
-  background-color: rgba(234, 179, 8, 0.1);
-  color: #facc15;
-  border: 1px solid rgba(234, 179, 8, 0.3);
-  border-radius: 0.5rem;
-  padding: 0.25rem 0.75rem;
-}
-
-.btn-primary {
-  background-color: #06b6d4;
-  color: #020818;
-  font-weight: 600;
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  transition: background-color 0.15s ease-in-out;
-}
-.btn-primary:hover {
-  background-color: #22d3ee;
-}
-
-.btn-secondary {
-  background-color: #0f1f3d;
-  color: #e2e8f0;
-  border: 1px solid #475569;
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  transition: background-color 0.15s ease-in-out;
-}
-.btn-secondary:hover {
-  background-color: #152652;
-}
-
-.btn-danger {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-}
-.btn-danger:hover {
-  background-color: rgba(239, 68, 68, 0.2);
-}
-
+/* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background-color: #060f2e;
+  background-color: #020817;
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #475569;
+  background-color: #334155;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #64748b;
+  background-color: #475569;
 }

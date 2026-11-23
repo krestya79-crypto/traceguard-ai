@@ -33,6 +33,14 @@
       ]
     },
     {
+      "collectionGroup": "security_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "security_decisions",
       "queryScope": "COLLECTION",
       "fields": [

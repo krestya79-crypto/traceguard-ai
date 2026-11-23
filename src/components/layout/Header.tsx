@@ -1,15 +1,23 @@
 import React from 'react'
-import { ShieldCheck, LogIn, LogOut, Database, UserCheck, RefreshCw } from 'lucide-react'
+import { ShieldCheck, LogIn, LogOut, Database, UserCheck, RefreshCw, Sparkles } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 
 interface HeaderProps {
   title: string
   subtitle: string
   onQuickRunScenario?: (scenario: 'SCENARIO_A' | 'SCENARIO_B' | 'SCENARIO_C') => void
+  runningScenario?: string | null
+  onOpenJudgePortal?: () => void
 }
 
-export const Header: React.FC<HeaderProps> = ({ title, subtitle, onQuickRunScenario }) => {
-  const { user, loading, isLive, signIn, signOut } = useAuth()
+export const Header: React.FC<HeaderProps> = ({
+  title,
+  subtitle,
+  onQuickRunScenario,
+  runningScenario,
+  onOpenJudgePortal,
+}) => {
+  const { user, loading, isLive, isJudge, signIn, signInJudge, signOut } = useAuth()
 
   return (
     <header className="h-16 bg-navy-900/80 border-b border-slate-800/80 px-6 flex items-center justify-between shrink-0 backdrop-blur z-10">
@@ -21,26 +29,42 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, onQuickRunScena
       </div>
 
       <div className="flex items-center gap-3">
+        {onOpenJudgePortal && (
+          <button
+            onClick={onOpenJudgePortal}
+            className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600/20 border border-purple-500/40 text-purple-300 hover:bg-purple-600/30 text-xs font-mono font-medium transition-colors cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+            Judge Portal
+          </button>
+        )}
+
         {onQuickRunScenario && (
           <div className="hidden xl:flex items-center gap-1.5 bg-navy-950/80 border border-slate-800 p-1 rounded-lg">
             <span className="text-[10px] text-slate-400 font-mono px-2 uppercase font-medium">Quick Demo:</span>
             <button
               onClick={() => onQuickRunScenario('SCENARIO_A')}
-              className="text-xs px-2.5 py-1 rounded bg-navy-800 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/10 transition-colors font-mono"
+              disabled={!!runningScenario}
+              className="text-xs px-2.5 py-1 rounded bg-navy-800 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/10 transition-colors font-mono disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
             >
-              Scenario A
+              {runningScenario === 'SCENARIO_A' && <RefreshCw className="w-3 h-3 animate-spin text-emerald-400" />}
+              {runningScenario === 'SCENARIO_A' ? 'Running A...' : 'Scenario A'}
             </button>
             <button
               onClick={() => onQuickRunScenario('SCENARIO_B')}
-              className="text-xs px-2.5 py-1 rounded bg-navy-800 text-red-400 border border-red-500/30 hover:bg-red-500/10 transition-colors font-mono"
+              disabled={!!runningScenario}
+              className="text-xs px-2.5 py-1 rounded bg-navy-800 text-red-400 border border-red-500/30 hover:bg-red-500/10 transition-colors font-mono disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
             >
-              Scenario B
+              {runningScenario === 'SCENARIO_B' && <RefreshCw className="w-3 h-3 animate-spin text-red-400" />}
+              {runningScenario === 'SCENARIO_B' ? 'Running B...' : 'Scenario B'}
             </button>
             <button
               onClick={() => onQuickRunScenario('SCENARIO_C')}
-              className="text-xs px-2.5 py-1 rounded bg-navy-800 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/10 transition-colors font-mono"
+              disabled={!!runningScenario}
+              className="text-xs px-2.5 py-1 rounded bg-navy-800 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/10 transition-colors font-mono disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
             >
-              Scenario C
+              {runningScenario === 'SCENARIO_C' && <RefreshCw className="w-3 h-3 animate-spin text-yellow-400" />}
+              {runningScenario === 'SCENARIO_C' ? 'Running C...' : 'Scenario C'}
             </button>
           </div>
         )}
@@ -48,15 +72,25 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, onQuickRunScena
         {/* Cloud Firestore Status Badge */}
         <div
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-mono ${
-            isLive
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+            isLive && user
+              ? isJudge
+                ? 'bg-purple-500/10 border-purple-500/30 text-purple-300'
+                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
               : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
           }`}
-          title={isLive ? 'Connected to live Firebase Cloud Firestore' : 'Running in local development buffer (unconfigured .env.local)'}
+          title={
+            isLive && user
+              ? `Connected to live Firebase Cloud Firestore as ${user.email || user.uid}`
+              : 'Demo mode in persistent local buffer (Sign in for live Cloud Firestore sync)'
+          }
         >
           <Database className="w-3.5 h-3.5" />
           <span className="hidden md:inline font-semibold">
-            {isLive ? 'CLOUD FIRESTORE (LIVE)' : 'LOCAL / OFFLINE BUFFER'}
+            {isLive && user
+              ? isJudge
+                ? 'FIRESTORE (JUDGE DEMO UID)'
+                : 'CLOUD FIRESTORE (AUTHENTICATED)'
+              : 'LOCAL BUFFER (DEMO MODE)'}
           </span>
         </div>
 
@@ -71,7 +105,7 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, onQuickRunScena
         <div className="flex items-center gap-2">
           {user ? (
             <div className="flex items-center gap-2 bg-navy-950 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-mono">
-              <UserCheck className="w-4 h-4 text-cyan-400" />
+              <UserCheck className={`w-4 h-4 ${isJudge ? 'text-purple-400' : 'text-cyan-400'}`} />
               <div className="hidden sm:block text-left">
                 <span className="text-slate-200 font-semibold block leading-tight max-w-[120px] truncate">
                   {user.displayName || user.email}
@@ -84,29 +118,40 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, onQuickRunScena
                 onClick={signOut}
                 disabled={loading}
                 title="Sign Out"
-                className="ml-1 p-1 hover:text-red-400 text-slate-400 transition-colors"
+                className="ml-1 p-1 hover:text-red-400 text-slate-400 transition-colors cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>
           ) : (
-            <button
-              onClick={signIn}
-              disabled={loading || !isLive}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all ${
-                isLive
-                  ? 'bg-cyan-500 hover:bg-cyan-400 text-navy-950 shadow-md shadow-cyan-500/10'
-                  : 'bg-navy-800 text-slate-400 border border-slate-700 cursor-not-allowed opacity-70'
-              }`}
-              title={isLive ? 'Sign in with Google' : 'Sign in requires valid Firebase config in .env.local'}
-            >
-              {loading ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <LogIn className="w-3.5 h-3.5" />
-              )}
-              <span>{isLive ? 'Sign In with Google' : 'Local Auth (Demo)'}</span>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={signInJudge}
+                disabled={loading}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 transition-all cursor-pointer"
+                title="Instant Judge Evaluation Session without personal Google credentials"
+              >
+                <Sparkles className="w-3 h-3 text-purple-400" />
+                <span>Judge Access</span>
+              </button>
+              <button
+                onClick={signIn}
+                disabled={loading || !isLive}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all ${
+                  isLive
+                    ? 'bg-cyan-500 hover:bg-cyan-400 text-navy-950 shadow-md shadow-cyan-500/10 cursor-pointer'
+                    : 'bg-navy-800 text-slate-400 border border-slate-700 cursor-not-allowed opacity-70'
+                }`}
+                title={isLive ? 'Sign in with Google (Developer Mode)' : 'Sign in requires valid Firebase config'}
+              >
+                {loading ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <LogIn className="w-3.5 h-3.5" />
+                )}
+                <span className="hidden sm:inline">Google Sign In</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
