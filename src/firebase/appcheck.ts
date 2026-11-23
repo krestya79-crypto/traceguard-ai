@@ -53,4 +53,17 @@ export function initializeAppCheckService(): AppCheck | null {
   }
 }
 
+export function getAppCheckStatus(): {
+  enabled: boolean
+  isDebug: boolean
+  provider: string
+} {
+  const recaptchaKey = import.meta.env.VITE_FIREBASE_APPCHECK_RECAPTCHA_KEY as string | undefined
+  return {
+    enabled: _appCheck !== null && Boolean(recaptchaKey),
+    isDebug: Boolean(import.meta.env.DEV),
+    provider: recaptchaKey ? 'reCAPTCHA v3' : 'None (Unconfigured)',
+  }
+}
+
 export { _appCheck as appCheck }

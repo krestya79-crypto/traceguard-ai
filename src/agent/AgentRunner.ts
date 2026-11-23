@@ -12,6 +12,7 @@ import { TaintEngine } from '../security/TaintEngine'
 import { RuntimeEnforcement } from '../security/RuntimeEnforcement'
 import { SandboxTools } from './SandboxTools'
 import { generateAgentPlanOrAction } from '../firebase/ai'
+import { getCurrentUser } from '../firebase/auth'
 import {
   createSession,
   updateSession,
@@ -69,7 +70,7 @@ export class AgentRunner {
     externalExportPermitted?: boolean
   }): Promise<AgentExecutionState> {
     const sessionId = uuidv4()
-    const userId = params.userId || 'demo_operator'
+    const userId = params.userId || getCurrentUser()?.uid || 'demo_operator'
 
     // 1. Create immutable Execution Contract
     const contract = createContract({

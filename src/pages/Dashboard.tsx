@@ -27,6 +27,7 @@ import {
   getUserSecurityEvents,
   getUserSessions,
 } from '../firebase/firestore'
+import { getCurrentUser } from '../firebase/auth'
 import { getAIInferenceStats, inferenceRouteLabel } from '../firebase/ai'
 import { AgentRunner } from '../agent/AgentRunner'
 import type { FirestoreSecurityEvent, FirestoreSession } from '../types/firestore'
@@ -54,11 +55,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateToTab }) => {
 
   const loadData = async () => {
     try {
-      const s = await getDashboardStats('demo_operator')
+      const activeUid = getCurrentUser()?.uid || 'demo_operator'
+      const s = await getDashboardStats(activeUid)
       setStats(s)
-      const evts = await getUserSecurityEvents('demo_operator', 10)
+      const evts = await getUserSecurityEvents(activeUid, 10)
       setRecentEvents(evts)
-      const sess = await getUserSessions('demo_operator', 5)
+      const sess = await getUserSessions(activeUid, 5)
       setRecentSessions(sess)
     } catch (err) {
       console.error('[Dashboard] Error fetching stats:', err)

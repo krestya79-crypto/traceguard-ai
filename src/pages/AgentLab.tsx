@@ -7,6 +7,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { AgentRunner, type AgentStepResult, type AgentExecutionState } from '../agent/AgentRunner'
+import { getCurrentUser } from '../firebase/auth'
 import { EnforcementDecision } from '../types/security'
 
 export const AgentLab: React.FC = () => {
@@ -36,6 +37,7 @@ export const AgentLab: React.FC = () => {
     const runner = new AgentRunner()
     try {
       await runner.initializeSession({
+        userId: getCurrentUser()?.uid || 'demo_operator',
         userGoal: taskPrompt,
         allowedTools,
         allowedRecipients: allowedRecipients.split(',').map((r) => r.trim()).filter(Boolean),

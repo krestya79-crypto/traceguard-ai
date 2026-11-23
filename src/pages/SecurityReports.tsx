@@ -11,6 +11,7 @@ import {
   getUserDecisions,
   getUserSessions,
 } from '../firebase/firestore'
+import { getCurrentUser } from '../firebase/auth'
 import type { FirestoreSecurityEvent, FirestoreSecurityDecision, FirestoreSession } from '../types/firestore'
 
 export const SecurityReports: React.FC = () => {
@@ -23,11 +24,12 @@ export const SecurityReports: React.FC = () => {
 
   const loadData = async () => {
     setLoading(true)
+    const activeUid = getCurrentUser()?.uid || 'demo_operator'
     try {
       const [evts, decs, sess] = await Promise.all([
-        getUserSecurityEvents('demo_operator', 50),
-        getUserDecisions('demo_operator', 50),
-        getUserSessions('demo_operator', 20),
+        getUserSecurityEvents(activeUid, 50),
+        getUserDecisions(activeUid, 50),
+        getUserSessions(activeUid, 20),
       ])
       setEvents(evts)
       setDecisions(decs)
@@ -44,9 +46,10 @@ export const SecurityReports: React.FC = () => {
   }, [])
 
   const handleExportJSON = () => {
+    const activeUid = getCurrentUser()?.uid || 'demo_operator'
     const reportData = {
       reportGeneratedAt: new Date().toISOString(),
-      operator: 'demo_operator',
+      operator: activeUid,
       sessions,
       securityDecisions: decisions,
       securityEvents: events,
