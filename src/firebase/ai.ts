@@ -715,4 +715,3 @@ export async function testOnDeviceAIInference(prompt = 'Health check on-device p
   }
 }
 
-\n
